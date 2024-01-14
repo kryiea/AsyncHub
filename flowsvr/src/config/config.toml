@@ -1,0 +1,43 @@
+# toml大小写区分
+
+[COMMON]
+port         = 41555
+open_tls     = false
+
+[MySQL]
+url          = "127.0.0.1:3307"
+user         = "root"
+pwd          = "123456"
+db_name      = "asynchub"
+# 空闲连接
+max_idle     = 2000
+# 最大连接数
+max_active   = 10000
+# 连接超时时间,秒
+idle_timeout = 500
+
+
+[Redis]
+url          = "127.0.0.1:6379"
+auth         = "123456"
+# 最大空闲连接
+max_idle     = 20
+# 最大连接数
+max_active   = 100
+# 空闲连接的超时时间
+idle_timeout = 300
+# 缓存超时时间，单位：天
+cache_timeout_day = 3
+
+
+[Task]
+# 多少行数据 进行一次分表：500w
+table_max_rows        = 5000000
+# 多少秒检查 进行一次分表
+split_interval        = 30
+# 多少秒检查一次 长时间未处理的任务
+long_process_interval = 10
+# 多少秒检查一次 是否迭代begin_pos
+move_interval         = 10
+# 如果配置信息表 任务的最大执行时间为0，那么使用下面的配置，做服务治理
+max_process_time      = 10
