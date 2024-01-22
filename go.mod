@@ -4,6 +4,7 @@ go 1.21.4
 
 require (
 	github.com/BurntSushi/toml v1.3.2
+	github.com/google/uuid v1.1.2
 	github.com/jinzhu/gorm v1.9.16
 )
 
@@ -20,7 +21,6 @@ require (
 	github.com/go-playground/validator/v10 v10.14.0 // indirect
 	github.com/go-sql-driver/mysql v1.5.0 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
-	github.com/google/uuid v1.1.2 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.4 // indirect
 	github.com/leodido/go-urn v1.2.4 // indirect

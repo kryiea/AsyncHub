@@ -217,7 +217,6 @@ func (p *Task) SetStatusFailed(db *gorm.DB, taskId string) error {
 	return p.SetStatus(db, taskId, TASK_STATUS_FAILED)
 }
 
-TODO 1.14
 // setStatus 更新任务状态
 func (p *Task) SetStatus(db *gorm.DB, taskId string, status TaskEnum) error {
 	// 创建一个包含状态字段的字典
@@ -235,4 +234,198 @@ func (p *Task) SetStatus(db *gorm.DB, taskId string, status TaskEnum) error {
 		return err
 	}
 	return nil
+}
+
+// SetStatusAndRetryIncrement 设置任务状态为等待处理，并增加重试次数 +1
+func (p *Task) SetStatusAndRetryIncrement(db *gorm.DB, taskId string, status TaskEnum) error {
+	// 创建一个包含要更新字段的字典
+	var dic = map[string]interface{}{
+		// 设置任务状态为给定状态
+		"status": status,
+		// 增加当前重试次数
+		"crt_retry_num": p.CrtRetryNum + 1,
+	}
+
+	// 根据任务ID获取任务在表中的位置信息
+	task, pos := p.getTablePosFromTaskId(taskId)
+
+	// 根据任务位置信息和任务ID更新任务状态和重试次数
+	err := db.
+		Table(p.getTableName(task, pos)).
+		Where("task_id = ?", taskId).
+		Updates(dic).Error
+
+	// 如果更新过程中出现错误，则返回错误信息
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// SetStatusWithOutModifyTime 设置任务状态，不修改最后更新时间
+func (p *Task) SetStatusWithOutModifyTime(db *gorm.DB, taskId string, status TaskEnum) error {
+	// 根据任务ID获取任务在表中的位置信息
+	taskType, pos := p.getTablePosFromTaskId(taskId)
+	// 根据任务位置信息和任务ID更新任务状态和重试次数
+	err := db.
+		Table(p.getTableName(taskType, pos)).
+		Where("task_id = ?", taskId).
+		UpdateColumn("status", status).Error
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// SetContext 设置任务上下文
+func (p *Task) SetContext(db *gorm.DB, taskId string, context map[string]interface{}) error {
+	var dic = map[string]interface{}{
+		"task_context": context,
+	}
+
+	// 根据任务ID获取任务在表中的位置信息
+	taskType, pos := p.getTablePosFromTaskId(taskId)
+	// 更新任务上下文
+	err := db.Table(p.getTableName(taskType, pos)).Where("task_id = ?", taskId).Update(dic).Error
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// getlongtimeprocessing 获取长时间处理的任务
+func (p *Task) GetLongTimeProcessing(db *gorm.DB, taskType, pos string, maxprocessTime int64, limit int) ([]*Task, error) {
+	var Tasks = make([]*Task, 0)
+	err := db.
+		Table(p.getTableName(taskType, pos)).
+		Where("status = ?", TASK_STATUS_PROCESSING).
+		Where("unix_timestamp(modify_time) + ? < ?", maxprocessTime, time.Now().Unix()).
+		Limit(limit).
+		Find(&Tasks).
+		Error
+	if err != nil {
+		return nil, err
+	}
+	return Tasks, nil
+}
+
+// ModifyTimeoutPending 更新超过最大执行时间的任务为等待状态
+func (p *Task) ModifyTimeoutPending(db *gorm.DB, taskType, pos string, maxProcessTime int64) error {
+	var dic = map[string]interface{}{
+		"status": TASK_STATUS_PENDING,
+	}
+	err := db.Table(p.getTableName(taskType, pos)).
+		Where("status = ?", TASK_STATUS_PROCESSING).
+		Where("unix_timestamp(modify_time) + ? < ?", maxProcessTime, time.Now().Unix()).
+		Updates(dic).
+		Error
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// IncreaseCrtRetryNum 增加一次对应任务的重试次数
+func (p *Task) IncreaseCrtRetryNum(db *gorm.DB, taskId string) error {
+	taskType, pos := p.getTablePosFromTaskId(taskId)
+	return db.
+		Table(p.getTableName(taskType, pos)).
+		Where("task_id = ?", taskId).
+		Update("crt_retry_num", gorm.Expr("crt_retry_num + ?", 1)).Error
+}
+
+// BeforeCreate 创建之前的回调函数
+func (p *Task) BeforeCreate(scope *gorm.Scope) error {
+	now := time.Now()
+	scope.SetColumn("create_time", now)
+	scope.SetColumn("modify_time", now)
+	return nil
+}
+
+// UpdateTask 更新任务
+func (p *Task) UpdateTask(db *gorm.DB) error {
+	taskType, pos := p.getTablePosFromTaskId(p.TaskId)
+	tableName := p.getTableName(taskType, pos)
+	p.ModifyTime = time.Now()
+	err := db.
+		Table(tableName).
+		Where("task_id = ?", p.TaskId).
+		Where("status <> ? and status <> ?", TASK_STATUS_SUCCESS, TASK_STATUS_FAILED).
+		Updates(p).Error
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// SetScheduleLog 设置任务的调度信息
+func (p *Task) SetScheduleLog(db *gorm.DB, ScheduleLog string) error {
+	p.ScheduleLog = ScheduleLog
+	return p.UpdateTask(db)
+}
+
+// BatchSetOwnerStatusWithPendingOutModify 批量设置任务状态为待处理，并且排除已经处于待处理的
+func (p *Task) BatchSetOwnerStatusWithPendingOutModify(db *gorm.DB,
+	taskIdList []string, owner string, status TaskEnum) (int64, error) {
+	// 创建一个字典，用于存储要更新的字段和值
+	var dic = map[string]interface{}{
+		"status": status,
+	}
+	// 如果指定了owner，则将owner字段添加到字典中
+	if owner != "" {
+		dic["owner"] = owner
+	}
+	// 获取第一个任务ID
+	tmpTaskId := taskIdList[0]
+	// 根据任务ID获取任务类型和位置信息
+	taskType, pos := p.getTablePosFromTaskId(tmpTaskId)
+	// 根据任务类型和位置信息获取对应的表名，并使用Where方法筛选出要更新的任务ID列表，并设置状态为待处理，然后使用UpdateColumns方法更新字典中指定的字段和值
+	db = db.
+		Table(p.getTableName(taskType, pos)).
+		Where("task_id in (?)", taskIdList).
+		Where("status = ?", TASK_STATUS_PENDING).
+		UpdateColumns(dic)
+	// 获取更新操作是否出错
+	err := db.Error
+	if err != nil {
+		return 0, err
+	}
+	// 返回受影响的行数和nil表示没有错误发生
+	return db.RowsAffected, nil
+}
+
+// GetAssignTasksByOwnerStatus 在指定任务列表中获取对应归宿和状态的任务列表
+func (p *Task) GetAssignTasksByOwnerStatus(db *gorm.DB,
+	taskIdList []string, owner string, status TaskEnum, limit int64) ([]*Task, error) {
+	if len(taskIdList) == 0 {
+		martlog.Infof("taskId list is empty")
+		// 如果任务ID列表为空，则返回nil和nil
+		return nil, nil
+	}
+	var Tasks = make([]*Task, 0)
+	tmpTaskId := taskIdList[0]
+	taskType, pos := p.getTablePosFromTaskId(tmpTaskId)
+	err := db.
+		Table(p.getTableName(taskType, pos)).
+		Where("task_id in (?)", taskIdList).
+		Where("owner = ? and status = ?", owner, status).
+		Limit(limit).
+		Find(&Tasks).Error
+	if err != nil {
+		// 如果查询出错，则返回nil和错误信息
+		return nil, err
+	}
+	// 返回查询结果和nil
+	return Tasks, nil
+}
+
+// ConventTaskIdList 任务信息列表转换成对应任务ID列表
+func ConventTaskIdList(tasks []*Task) []string {
+	taskIds := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		if task != nil {
+			taskIds = append(taskIds, task.TaskId)
+		}
+	}
+	return taskIds
 }

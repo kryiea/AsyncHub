@@ -26,7 +26,7 @@ func RegisterRouter(router *gin.Engine) {
 	v1 := router.Group("/v1")
 	{
 		// 创建任务接口，前面是路径，后面是执行的函数，跳进去
-		v1.POST("/creater_task", task.CreateTask")
+		v1.POST("/creater_task", task.CreateTask)
 
 	}
 }
